@@ -1,10 +1,4 @@
-import {
-	useState,
-	useRef,
-	useLayoutEffect,
-	useEffect,
-	useCallback,
-} from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 
 // import photos from "./photos.json";
 
@@ -46,16 +40,19 @@ function App() {
 		return list;
 	});
 
+	const [itemCount, setItemCount] = useState(30);
+
 	return (
 		<div style={{ display: "flex", gap: "100px" }}>
+			<button onClick={() => setItemCount((prev) => (prev += 5))}>click</button>
 			<div style={{ width: "500px" }}>
 				<VirtualizedList
-					height={860}
-					itemCount={100}
+					height={580}
+					itemCount={itemCount}
 					itemSize={176}
-					pageSize={5}
+					pageSize={10}
 					onNewPage={({ startIndex, endIndex }) => {
-						console.log(startIndex, endIndex);
+						// console.log({ startIndex, endIndex });
 						setList(fullList.slice(startIndex, endIndex + 1));
 					}}
 				>
@@ -78,143 +75,123 @@ const VirtualizedList = ({
 	itemSize,
 	itemCount,
 	children,
-	onScroll,
-	onNewPage,
 	pageSize,
+	onNewPage,
+	onScroll,
 }) => {
-	const itemsInView = useRef(Math.round(height / itemSize));
-	const offset = useRef(
-		pageSize - itemsInView.current <= 0 ? 0 : pageSize - itemsInView.current
-	);
-	const calculatedPageSize = useRef(itemsInView.current + offset.current);
-
 	const [indexes, setIndexes] = useState([]);
 	const [startIndexPage, setStartIndexPage] = useState(0);
 	const [endIndexPage, setEndIndexPage] = useState(
-		() => calculatedPageSize.current
+		itemCount < pageSize ? itemCount - 1 : pageSize - 1
 	);
-
-	// fix this moment and check if it render item count 5 page size 10
-	console.log("awdawd", Math.floor((itemSize * itemCount) / itemSize) - 1);
-
-	// console.log({ startIndexPage, endIndexPage });
-
 	const parentRef = useRef(null);
+	const [scrollTop, setScrollTop] = useState(parentRef.current ?? 0);
 
-	const getItemsInView = useCallback(
-		(e) => {
-			const target = e?.target;
-			const scrollTop = target?.scrollTop || 0;
-			let startIndex = Math.floor(scrollTop / itemSize);
-			let endIndex =
-				itemSize * itemCount < height
-					? Math.floor((itemSize * itemCount) / itemSize)
-					: Math.floor((scrollTop + height) / itemSize);
-
-			// console.log(height);
-			// console.log(itemSize * itemCount);
-			// console.log(Math.floor((itemSize * itemCount) / itemSize));
-			// console.log(Math.floor((scrollTop + height) / itemSize));
-
-			if (endIndex > itemCount) return;
-
-			endIndex +=
-				itemCount - endIndex < offset.current
-					? itemCount - endIndex
-					: offset.current;
-
-			// console.log({ startIndex, endIndex });
-
-			// scroll up
-			if (startIndex < startIndexPage && startIndex !== 0) {
-				console.log("scroll up");
-				setStartIndexPage((prev) => prev - calculatedPageSize.current);
-				setEndIndexPage((prev) => {
-					if (
-						itemCount % calculatedPageSize.current !== 0 &&
-						prev === itemCount
-					) {
-						return prev - (prev - startIndexPage);
-					}
-
-					return prev - calculatedPageSize.current;
-				});
-			}
-
-			// scroll down
-			if (endIndexPage - startIndex <= 0) {
-				console.log("scroll down");
-				setStartIndexPage((prev) => prev + calculatedPageSize.current);
-				setEndIndexPage((prev) => {
-					const newIndex = prev + calculatedPageSize.current;
-					if (newIndex > itemCount) return prev + itemCount - prev;
-					if (
-						(itemCount - newIndex) * itemSize <=
-						itemsInView.current * itemSize
-					) {
-						return newIndex + (itemCount - newIndex);
-					}
-					return newIndex;
-				});
-			}
-
-			onScroll?.({ startIndex, endIndex });
-
-			let array = [];
-
-			for (let i = startIndex; i <= endIndex; i++) {
-				if (i === itemCount) break;
-				array.push(i);
-			}
-			setIndexes(array);
-		},
-		[itemSize, height, itemCount, startIndexPage, endIndexPage]
+	const startIndex = Math.floor(scrollTop / itemSize);
+	const endIndex = Math.floor((scrollTop + height) / itemSize);
+	const itemsInView = useMemo(
+		() => Math.ceil(height / itemSize),
+		[height, itemSize]
 	);
 
-	useLayoutEffect(() => {
-		// const parent = parentRef.current;
-		// if (!parent) return;
-
-		getItemsInView();
-
-		// parent.scrollTo(1, 1);
-		// parent.scrollTo(0, 0);
-	}, []);
-
-	useLayoutEffect(() => {
+	useEffect(() => {
 		const parent = parentRef.current;
 		if (!parent) return;
 
-		parent.removeEventListener("scroll", getItemsInView, true);
-		parent.addEventListener("scroll", getItemsInView, true);
+		const scrollObserver = (e) => {
+			const target = e?.target;
+			const scrollTop = target?.scrollTop || 0;
+
+			setScrollTop(scrollTop);
+		};
+
+		parent.removeEventListener("scroll", scrollObserver, true);
+		parent.addEventListener("scroll", scrollObserver, true);
 
 		return () => {
-			parent.removeEventListener("scroll", getItemsInView, true);
+			parent.removeEventListener("scroll", scrollObserver, true);
 		};
-	}, [parentRef, getItemsInView, itemSize, height, itemCount]);
+	}, [parentRef]);
 
 	useEffect(() => {
-		// console.log({ endIndexPage });
+		onNewPage?.({ startIndex: startIndexPage, endIndex: endIndexPage });
+	}, [startIndexPage, endIndexPage, itemCount]);
 
-		// let endIndex = endIndexPage === itemCount ? endIndexPage : endIndexPage - 1;
-		let endIndex =
-			endIndexPage === itemCount ? endIndexPage - 1 : endIndexPage - 1;
+	// trigger scroll on adding new items, so it can recalculate all positions
+	useEffect(() => {
+		const parent = parentRef.current;
+		if (!parent) return;
 
-		// console.log({ startIndexPage, endIndexPage });
+		parent.scrollTo(0, parent.scrollTop - 1);
+		parent.scrollTo(0, parent.scrollTop + 1);
+	}, [itemCount]);
 
-		if (itemCount === 0) return;
-		// if (pageSize > itemCount) {
-		// 	console.log({ pageSize });
-		// 	console.log({ itemCount });
-		// }
+	// render list
+	useEffect(() => {
+		const offset = pageSize - itemsInView;
+		const thereIsLessThanOffsetItems = () => itemCount - endIndex < offset;
+		const remainingElements = endIndex + (itemCount - endIndex);
+		const defaultOffset = endIndex + offset;
 
-		onNewPage?.({
-			startIndex: startIndexPage,
-			endIndex,
-		});
-	}, [endIndexPage, startIndexPage]);
+		const endRenderIndex = thereIsLessThanOffsetItems()
+			? remainingElements
+			: defaultOffset;
 
-	// console.log({ startIndexPage, endIndexPage });
+		let array = [];
+		for (let i = startIndex; i <= endRenderIndex; i++) {
+			if (i === itemCount) break;
+			array.push(i);
+		}
+		setIndexes(array);
+	}, [itemCount, startIndex, endIndex]);
+
+	// scroll up
+	useEffect(() => {
+		const userScrolledUp = () => startIndex < startIndexPage;
+		const notStartPage = () => startIndex !== 0;
+
+		if (userScrolledUp() && notStartPage()) {
+			setStartIndexPage((prev) => prev - pageSize);
+			setEndIndexPage((prev) => {
+				const notEnoughElementsForFullPage = () => itemCount % pageSize !== 0;
+				const lastPage = () => prev === itemCount - 1;
+
+				if (notEnoughElementsForFullPage() && lastPage()) {
+					return prev - (prev - startIndexPage) - 1;
+				}
+				return prev - pageSize;
+			});
+		}
+	}, [itemCount, pageSize, startIndex, startIndexPage]);
+
+	// scroll down
+	useEffect(() => {
+		if (endIndexPage - startIndex < 0) {
+			setStartIndexPage((prev) => prev + pageSize);
+			setEndIndexPage((prev) => {
+				const notEnoughElementsForFullPage = () =>
+					prev + pageSize > itemCount - 1;
+
+				if (notEnoughElementsForFullPage()) {
+					return prev + (itemCount - prev - 1);
+				}
+				return prev + pageSize;
+			});
+		}
+	}, [startIndex, endIndexPage, pageSize, itemCount]);
+
+	// check if scroll is not big enough to scroll to the next page
+	useEffect(() => {
+		const cannotBeScrolledToNextPage = () =>
+			itemCount - (endIndexPage + 1) < itemsInView;
+		const preventInfiniteLoop = () => endIndexPage < itemCount - 1;
+
+		if (cannotBeScrolledToNextPage() && preventInfiniteLoop()) {
+			setEndIndexPage((prev) => prev + (itemCount - 1 - prev));
+		}
+	}, [endIndexPage, itemCount, itemsInView]);
+
+	onScroll?.({ startIndex, endIndex });
 
 	return (
 		<div
